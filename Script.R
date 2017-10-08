@@ -1,17 +1,19 @@
-# There are 2 datasets - "bank" and "bank-additional".
-# The "bank-additional" version has fewer records, but more measures, so select to use this one?  
-# No balance, fewer defaults, but more variables in the bank-additional version  
+# This is the script used to produce the graphs and results set out in the SAS BDC case study.
+# There are 2 datasets - "bank" and "bank-additional".  The "bank-additional" version has fewer records, but more measures, so select to use this one. 
+# Data is obtained from https://archive.ics.uci.edu/ml/datasets/Bank+Marketing
 
-setwd("C:/Users/Alvin/Downloads/SAS BDWP")
+# Set directory where data is saved
+setwd("C:/Projects/SAS BDWP")
 
-# Read in data.
-bankdata<-read.csv("bank-additional-full.csv",sep=";",header=TRUE)
-
+# PACKAGES
 # Load packages
 if(!require("caret")){install.packages("caret"); library(caret)}
 if(!require("randomForest")){install.packages("randomForest"); library(randomForest)}
 if(!require("pROC")){install.packages("pROC"); library(pROC)}
 
+# DATA
+# Read in data.
+bankdata<-read.csv("bank-additional-full.csv",sep=";",header=TRUE)
 
 # Split training and cv, so we get 60:20:20 proportion
 set.seed(0816)
@@ -25,9 +27,7 @@ bankdata[(0.8*nrow(bankdata)):(nrow(bankdata)),"id"]<-"test"
 # Create train dataset for exploratory analyses
 bankdata_train<-bankdata[bankdata$id=="train",]
 
-# Exploratory analyses - some examples
-
-##  barplots
+# EXPLORATORY ANALYSES - some examples
 
 ## Age
 par(mar = c(5,5,4,4))    
@@ -55,8 +55,9 @@ plot(prop.table(table(bankdata$day_of_week,bankdata$y),1)[,2],xlab=NA,ylab=NA, a
 mtext("Probability of Conversion",side=4, line = 3.5)
 axis(4, ylim=c(0,1), col="black",col.axis="black",las=1)
 
-# Feature Engineering
-## AGE
+# FEATURE ENGINEERING - some examples
+
+## Age
 hist(bankdata$age,main="Age",xlab=NULL,col="firebrick")
 par(new=T)
 plot(prop.table(table(bankdata$age,bankdata$y),1)[,1],xlab=NA,ylab=NA, axes=F)
@@ -66,7 +67,7 @@ bankdata$agegroup[bankdata$age<41 & bankdata$age>24]<-"b25to40"
 bankdata$agegroup[bankdata$age<56 & bankdata$age>40]<-"b41to55"
 bankdata$agegroup[bankdata$age>55]<-"Above55"
 
-## DURATION - need to be excluded
+## Duration - example on feature engineering provided, but this factor needs to be excluded (see article)
 bankdata$durationgroup<-floor(bankdata$duration/30)
 table(bankdata$durationgroup)
 #decide to group >3 years together
@@ -75,7 +76,7 @@ hist(bankdata$durationgroup,main="Duration",xlab=NULL,col="firebrick")
 par(new=T)
 plot(prop.table(table(bankdata$durationgroup,bankdata$y),1)[,2],xlab=NA,ylab=NA, axes=F, col="blue")
 
-# EURIBOR - round to nearest %
+# Euribor - round to nearest %
 bankdata$euriborgroup<-round(bankdata$euribor3m/0.5)*0.5
 bankdata$euriborgroup[bankdata$euriborgroup==2]<-1.5
 bankdata$euriborgroup[bankdata$euriborgroup==3]<-4
@@ -85,7 +86,7 @@ hist(bankdata$euriborgroup,main="Euribor",xlab=NULL,col="firebrick")
 par(new=T)
 plot(prop.table(table(bankdata$euriborgroup,bankdata$y),1)[,2],xlab=NA,ylab=NA, axes=F)
 
-# CAMPAIGN - plot shows it appears to be ascending in sequence
+# Campaign - plot shows it appears to be ascending in sequence
 # Group all above 15 together
 bankdata$campaigngroup<-bankdata$campaign
 bankdata$campaigngroup[bankdata$campaign>15]<-16
@@ -93,22 +94,21 @@ hist(bankdata$campaigngroup,main="Campaign",xlab=NULL,col="blue")
 par(new=T)
 plot(prop.table(table(bankdata$campaigngroup,bankdata$y),1)[,2],xlab=NA,ylab=NA, axes=F)
 
-# PDAYS - convert to a binary factor, yes or no.
-
+# Pdays - convert to a binary factor, yes or no.
 bankdata$contact_in_last_month<-"Yes"
 bankdata$contact_in_last_month[bankdata$pdays==999]<-"No"
 plot(table(bankdata$contact_in_last_month),main="Contacted in last month?",xlab=NULL,col="blue")
 par(new=T)
 plot(prop.table(table(bankdata$contact_in_last_month,bankdata$y),1)[,2],xlab=NA,ylab=NA, axes=F)
 
-#Group up previous
+# Group up previous
 bankdata$previousgroup<-bankdata$previous
 bankdata$previousgroup[bankdata$previous>3]<-3
 hist(bankdata$previousgroup,main="Previous",xlab=NULL,col="blue")
 par(new=T)
 plot(prop.table(table(bankdata$previousgroup,bankdata$y),1)[,2],xlab=NA,ylab=NA, axes=F)
 
-#Group up cons.idx
+# Group up cons.idx
 bankdata$conspricegroup<-round(bankdata$cons.price.idx/0.2)*0.2
 bankdata$consconfgroup<-round(bankdata$cons.conf.idx/0.5)*0.5
 hist(bankdata$conspricegroup,main="Consprice",xlab=NULL,col="blue")
@@ -134,29 +134,35 @@ cv<-bankdata[bankdata$id=="cv",]
 test<-bankdata[bankdata$id=="test",]
 
 # GLM fit
-
+# Set seed
 set.seed(0817)
 
+# Train model on train dataset
 glmfit <- glm(y~job + marital + education + default + housing + loan + contact + day_of_week 
                 + campaigngroup + contact_in_last_month + previousgroup 
                 + poutcome + emp.var.rate + conspricegroup + consconfgroup + euriborgroup 
                 + nr.employed + agegroup,
                 data=train, family=binomial)
+
+# Use fitted model to predict CV data, then calculate ROC and AUC
 glmpred <- predict(glmfit, newdata=cv, type="response")
 glmroc <- roc(cv$y, glmpred)
 glmauc <- glmroc$auc
 
+# Use fitted model to predict test data, then calculate ROC and AUC
 glmpred_test <- predict(glmfit, newdata=test, type="response")
 glmroc_test <- roc(test$y, glmpred_test)
 glmauc_test <- glmroc_test$auc
 
-# Other fits
+# Other Models
 # GLM boost
+# Set train control for other methods
 fitControl <- trainControl(method = "repeatedcv",
                             number = 5,
                             repeats = 10,
                             classProbs = TRUE)
- 
+
+# Train model on train dataset 
 glmBoostfit<-train(y~job + marital + education + default + housing + loan + contact + day_of_week
                      + campaigngroup + contact_in_last_month + previousgroup
                      + poutcome + emp.var.rate + conspricegroup + consconfgroup + euriborgroup
@@ -167,16 +173,19 @@ glmBoostfit<-train(y~job + marital + education + default + housing + loan + cont
                      family=Binomial(link=c("logit")),
                      tuneLength=5)
 
+# Use fitted model to predict CV data, then calculate ROC and AUC
 glmBoostpred<-predict(glmBoostfit, newdata=cv, type="prob")[,"yes"]
 glmBoostroc<-roc(cv$y, glmBoostpred)
 glmBoostauc<-glmBoostroc$auc
 
+# Use fitted model to predict test data, then calculate ROC and AUC
 glmBoostpred_test<-predict(glmBoostfit, newdata=test, type="prob")[,"yes"]
 glmBoostroc_test<-roc(test$y, glmBoostpred_test)
 glmBoostauc_test<-glmBoostroc_test$auc
 
-## Fit CART
+## Fit CART (Regression Trees)
 
+# Train model on train dataset 
 cartfit<-train(y~job + marital + education + default + housing + loan + contact + day_of_week
                       + campaigngroup + contact_in_last_month + previousgroup
                      + poutcome + emp.var.rate + conspricegroup + consconfgroup + euriborgroup
@@ -186,25 +195,21 @@ cartfit<-train(y~job + marital + education + default + housing + loan + contact 
                      trControl = fitControl,
                      tuneLength=5)
 
-cartfit2<-rpart(y~job + marital + education + default + housing + loan + contact + day_of_week 
-                + campaigngroup + contact_in_last_month + previousgroup 
-                + poutcome + emp.var.rate + conspricegroup + consconfgroup + euriborgroup 
-                + nr.employed + agegroup,
-                data=train,  method="class",control=rpart.control(minsplit=100, cp=0.001))
-
+# Use fitted model to predict CV data, then calculate ROC and AUC
 cartpred<-predict(cartfit, newdata=cv, type="prob")[,"yes"]
 cartroc<-roc(cv$y, cartpred)
 cartauc<-cartroc$auc
 
+# Use fitted model to predict test data, then calculate ROC and AUC
 cartpred_test<-predict(cartfit, newdata=test, type="prob")[,"yes"]
 cartroc_test<-roc(test$y, cartpred_test)
 cartauc_test<-cartroc_test$auc
-
 
 ## Conditional Inference Tree
 
 set.seed(1985)
 
+# Train model on train dataset 
 ctreefit<-train(y~job + marital + education + default + housing + loan + contact + day_of_week
                 + campaigngroup + contact_in_last_month + previousgroup
                + poutcome + emp.var.rate + conspricegroup + consconfgroup + euriborgroup
@@ -214,19 +219,20 @@ ctreefit<-train(y~job + marital + education + default + housing + loan + contact
                trControl = fitControl,
                tuneLength=5)
 
+# Use fitted model to predict CV data, then calculate ROC and AUC
 ctreepred<-predict(ctreefit, newdata=cv, type="prob")[,"yes"]
 ctreeroc<-roc(cv$y, ctreepred)
 ctreeauc<-ctreeroc$auc
 
+# Use fitted model to predict test data, then calculate ROC and AUC
 ctreepred_test<-predict(ctreefit, newdata=test, type="prob")[,"yes"]
 ctreeroc_test<-roc(test$y, ctreepred_test)
 ctreeauc_test<-ctreeroc_test$auc
 
-
-
 ## Gradient Boosted Trees
 set.seed(1986)
 
+# Train model on train dataset 
 gbmfit<-train(y~job + marital + education + default + housing + loan + contact + day_of_week
                + campaigngroup + contact_in_last_month + previousgroup
                + poutcome + emp.var.rate + conspricegroup + consconfgroup + euriborgroup
@@ -237,10 +243,12 @@ gbmfit<-train(y~job + marital + education + default + housing + loan + contact +
                verbose=TRUE,
                tuneLength=5)
 
+# Use fitted model to predict CV data, then calculate ROC and AUC
 gbmpred<-predict(gbmfit, newdata=cv, type="prob")[,"yes"]
 gbmroc<-roc(cv$y, gbmpred)
 gbmauc<-gbmroc$auc
 
+# Use fitted model to predict test data, then calculate ROC and AUC
 gbmpred_test<-predict(gbmfit, newdata=test, type="prob")[,"yes"]
 gbmroc_test<-roc(test$y, gbmpred_test)
 gbmauc_test<-gbmroc_test$auc
@@ -248,6 +256,7 @@ gbmauc_test<-gbmroc_test$auc
 ## Random Forest
 set.seed(1988)
 
+# Train model on train dataset 
 rffit<-train(y~job + marital + education + default + housing + loan + contact + day_of_week 
               + campaigngroup + contact_in_last_month + previousgroup 
               + poutcome + emp.var.rate + conspricegroup + consconfgroup + euriborgroup 
@@ -259,18 +268,20 @@ rffit<-train(y~job + marital + education + default + housing + loan + contact + 
               tuneLength=5)
 varImpPlot(rffit,type=1)
 
+# Use fitted model to predict CV data, then calculate ROC and AUC
 rfpred<-predict(rffit, newdata=cv, type="prob")[,"yes"]
 rfroc<-roc(cv$y, rfpred)
 rfauc<-rfroc$auc
 
+# Use fitted model to predict test data, then calculate ROC and AUC
 rfpred_test<-predict(rffit, newdata=test, type="prob")[,"yes"]
 rfroc_test<-roc(test$y, rfpred_test)
 rfauc_test<-rfroc_test$auc
 
-
-## Earth model
+## MARS model
 set.seed(1983)
 
+# Train model on train dataset 
 marsfit<-train(y~job + marital + education + default + housing + loan + contact + day_of_week
             + campaigngroup + contact_in_last_month + previousgroup
              + poutcome + emp.var.rate + conspricegroup + consconfgroup + euriborgroup
@@ -281,13 +292,19 @@ marsfit<-train(y~job + marital + education + default + housing + loan + contact 
              trControl = fitControl,
              tuneLength=5)
 
+# Use fitted model to predict CV data, then calculate ROC and AUC
 marspred<-predict(marsfit, newdata=cv, type="prob")[,"yes"]
 marsroc<-roc(cv$y, marspred)
 marsauc<-marsroc$auc
 
+# Use fitted model to predict test data, then calculate ROC and AUC
 marspred_test<-predict(marsfit, newdata=test, type="prob")[,"yes"]
 marsroc_test<-roc(test$y, marspred_test)
 marsauc_test<-marsroc_test$auc
+
+## ENSEMBLING
+
+# Create Ensemble 1, simple average of GBM, RF, Ctrees, GLM.  Calculate ROC and AUC on CV and Test datasets
 
 ensem1<-(gbmpred + rfpred + ctreepred + glmpred)/4
 ensem1roc<-roc(cv$y, ensem1)
@@ -297,6 +314,8 @@ ensem1_test<-(gbmpred_test + rfpred_test + ctreepred_test + glmpred_test)/4
 ensem1roc_test<-roc(test$y, ensem1_test)
 ensem1auc_test<-ensem1roc_test$auc
 
+# Create Ensemble 1, weighted average of GBM, RF, Ctrees, GLM.  Calculate ROC and AUC on CV and Test datasets
+
 ensem2<-(gbmpred*4+rfpred*3+ctreepred*2+glmpred)/10
 ensem2roc<-roc(cv$y, ensem2)
 ensem2auc<-ensem2roc$auc
@@ -305,17 +324,20 @@ ensem2_test<-(gbmpred_test*4+rfpred_test*3+ctreepred_test*2+glmpred_test)/10
 ensem2roc_test<-roc(test$y, ensem2_test)
 ensem2auc_test<-ensem2roc_test$auc
 
+## RESULTS TABLE
+
+# Group AUC in single data frame, ranked in descending order of value, for both CV and Test data separately.
 
 auctable<-data.frame(model=c("glm","glmboost","cart","ctree","gbm","rf","mars","Ens 1", "Ens 2"),
                      auc=c(glmauc,glmBoostauc,cartauc, ctreeauc, gbmauc, rfauc, marsauc, ensem1auc, ensem2auc))
 auctable<-auctable[order(auctable$auc,decreasing=TRUE),]
-
 
 auctable_test<-data.frame(model=c("glm","glmboost","cart","ctree","gbm","rf","mars","Ens 1", "Ens 2"),
                      auc=c(glmauc_test,glmBoostauc_test,cartauc_test, ctreeauc_test, gbmauc_test, rfauc_test, marsauc_test, ensem1auc_test, ensem2auc_test))
 auctable_test<-auctable_test[order(auctable_test$auc,decreasing=TRUE),]
 
 
+# Create a Variable Importance Plot using the randomForest package
 rffit2<-randomForest(y~job + marital + education + default + housing + loan + contact + day_of_week 
                      +                      + campaigngroup + contact_in_last_month + previousgroup 
                      +                      + poutcome + emp.var.rate + conspricegroup + consconfgroup + euriborgroup 
@@ -331,3 +353,5 @@ ggplot(Importance, aes(y=Importance$MeanDecreaseAccuracy,
                       xlab("Variables")+theme(legend.position="none")+
                       ggtitle("Importance of Variable Measured by Mean Decrease in Accuracy")
 
+
+## End of script
